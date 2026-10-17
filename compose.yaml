@@ -1,0 +1,12 @@
+services:
+  demo:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+    ports:
+      - "${DEMO_PORT:-18080}:8080"
+    environment:
+      DEMO_MESSAGE: ${DEMO_MESSAGE:-Hello from DeployMate!}
+    restart: unless-stopped
