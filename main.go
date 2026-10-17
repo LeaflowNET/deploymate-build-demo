@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"embed"
 	"flag"
-	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +12,9 @@ import (
 	"syscall"
 	"time"
 )
+
+//go:embed web/dist
+var webAssets embed.FS
 
 var version = "dev"
 var commit = "unknown"
@@ -39,31 +42,16 @@ func main() {
 		}
 		return
 	}
-	started := time.Now().UTC()
-	hostname, err := os.Hostname()
+	store, err := openStore(env("DATA_DIR", "data"))
+	if err != nil {
+		log.Fatalf("open task store: %v", err)
+	}
+	assets, err := fs.Sub(webAssets, "web/dist")
 	if err != nil {
 		log.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		if err := json.NewEncoder(w).Encode(struct {
-			Service   string    `json:"service"`
-			Message   string    `json:"message"`
-			Version   string    `json:"version"`
-			Commit    string    `json:"commit"`
-			Hostname  string    `json:"hostname"`
-			StartedAt time.Time `json:"startedAt"`
-		}{"deploymate-build-demo", env("DEMO_MESSAGE", "Hello from DeployMate!"), version, commit, hostname, started}); err != nil {
-			log.Printf("write response: %v", err)
-		}
-	})
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintln(w, "ok")
-	})
-	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	handler := newHandler(store, http.FileServer(http.FS(assets)))
+	server := &http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)
